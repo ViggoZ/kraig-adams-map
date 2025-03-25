@@ -58,9 +58,9 @@ let App = () => {
                 }
                 }>
                     <option value="">Playlist</option>
-                    <option value="tymnk">Things You Might Not Know</option>
-                    <option value="ap">Amazing Places</option>
-                    <option value="bfs">Built for Science</option>
+                    <option value="hiking">Solo Hiking</option>
+                    <option value="city">City Guides</option>
+                    <option value="minimalism">Minimalism</option>
                 </select>
 
                 <input type="search" placeholder="filter" name="TextFilter" onChange={(changeEvent) => {

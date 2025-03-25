@@ -1,87 +1,54 @@
 import pandas as pd
 import json
-from dotenv import load_dotenv
-from os import getenv
-import requests
+import ast
 
-#get the data
-df = pd.read_csv("./data/3_geocoded.csv", index_col=0)
+print("开始读取地理编码数据...")
+# 读取数据
+df = pd.read_csv("3_geocoded.csv", index_col=0)
+print(f"读取了 {len(df)} 个视频的数据")
 
-#first, remove the description column, not needed for web display
+# 移除不需要的列
 df = df.drop(columns=["description"])
 
-#pull 3 selected playlists (things you might not know, amazing places, built for science), add a column to describe 
-playlists = {
-    "bfs": "PL96C35uN7xGKyF2QKy4NF6ybamx4nQswv", #built for science
-    "tymnk": "PL96C35uN7xGI9HGKHsArwxiOejecVyNem", #things you might not know
-    "ap": "PL96C35uN7xGK_y459BdHCtGeftqs5_nff" #amazing places
-}
-
-
-load_dotenv("./data/.env")
-
-API_KEY = getenv("API_KEY")
-
-URL = "https://www.googleapis.com/youtube/v3/playlistItems"
-
-params = {
-    "key": API_KEY,
-    "part": "snippet",
-    "maxResults": 50
-}
-
-playlist_matches = {}
-
-for playlist in playlists.items():
-    next_token = None
-    playlist_name = playlist[0]
-    playlist_id = playlist[1]
-    while(True):
-        this_request_params = params | {"playlistId": playlist_id}
-        if next_token is not None:
-            this_request_params |= {"pageToken": next_token}
-
-        resp = requests.get(URL, this_request_params)
-    
-        if resp.status_code != 200:
-            print(resp.text)
-            print(f"ERROR, status code: {resp.status_code}")
-            exit()
-
-        resp = resp.json()
-
-        next_token = resp.get("nextPageToken", None)
-
-        for video in resp["items"]:
-            playlist_matches[video["snippet"]["resourceId"]["videoId"]] = playlist_name
-            
-        
-        if next_token is None:
-            break
-    
-#match all videos found in playlists with their 
-df["playlist"] = df["videoId"].apply(lambda x: playlist_matches.get(x, None))
-
-#remove all videos not in these playlists
-df = df.dropna(subset=["playlist"])
-
-#now, take all the geoJson elements and just extract the x and y to reduce json payload size
-def get_coords(geojson):
+# 处理地理编码数据
+print("\n处理地理编码数据...")
+def parse_geocode(geocode_str):
     try:
-        geojson = json.loads(geojson)
-        geojson = geojson["features"][0]["geometry"]["coordinates"]
-        #geojson stores lng,lat, while leaflet expects lat,lng
-        geojson[0], geojson[1] = geojson[1], geojson[0]
-        return geojson
+        # 将字符串形式的列表转换为实际的列表
+        coords = ast.literal_eval(geocode_str)
+        if coords == [0, 0]:
+            return None
+        return coords
     except:
-        pass
+        return None
 
-df["geocode"] = df["geocode"].apply(get_coords)
+df["geocode"] = df["geocode"].apply(parse_geocode)
 
-#add a 'marked' field to show when the data has been hand checked
-df["marked"] = False
+# 移除没有地理位置的视频
+df = df.dropna(subset=["geocode"])
+print(f"处理后剩余 {len(df)} 个有效视频")
 
-df.to_json("./data/4_refined.json", orient="records")
-#the exported CSV does not automatically format csv correctly so convert it to string first
-df["geocode"] = df["geocode"].apply(json.dumps)
-df.to_csv("./data/4_refined.csv")
+# 设置视频类型
+print("\n根据标题设置视频类型...")
+def get_video_type(title):
+    title = title.lower()
+    if "hiking" in title or "trek" in title or "trail" in title:
+        return "hiking"
+    elif any(word in title for word in ["days in", "life in", "trip to", "living in", "city"]):
+        return "city"
+    else:
+        return "other"
+
+df["playlist"] = df["title"].apply(get_video_type)
+
+# 添加标记字段
+df["marked"] = True
+
+print("\n保存数据...")
+# 保存为 JSON 供网页使用
+web_data = df.to_dict(orient="records")
+with open("../web/src/data/data.json", "w") as f:
+    json.dump(web_data, f, ensure_ascii=False, indent=2)
+
+print("数据已保存到 web/src/data/data.json")
+print("数据处理完成！")
